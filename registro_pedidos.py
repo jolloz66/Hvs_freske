@@ -414,93 +414,126 @@ with tab3:
 # =====================================
 
 with tab4:
-
     st.header("Facturación Detallada del Día")
 
+    # Selección de fecha
     filtro_fecha = st.date_input("Selecciona la Fecha de Despacho")
 
-    # Traer pedidos del día con info del cliente
-    pedidos = supabase.table("pedidos") \
-        .select("*, clientes(nombre)") \
-        .eq("fecha_despacho", filtro_fecha.isoformat()) \
-        .execute().data
+    # 1. CONSULTA A SUPABASE
+    # Traemos campos de 'pedidos' y campos específicos de la relación 'clientes'
+    campos_query = (
+        "*, "
+        "clientes(nombre, forma_de_pago)"
+    )
 
-    df_pedidos = pd.DataFrame(pedidos)
+    try:
+        resultado_pedidos = supabase.table("pedidos") \
+            .select(campos_query) \
+            .eq("fecha_despacho", filtro_fecha.isoformat()) \
+            .execute()
+        
+        pedidos = resultado_pedidos.data
+        df_pedidos = pd.DataFrame(pedidos)
 
-    if df_pedidos.empty:
-        st.warning("No hay pedidos para esa fecha.")
-    else:
-
-        todos_detalles = []
-
-        for _, pedido in df_pedidos.iterrows():
-
-            detalle = supabase.table("detalle_pedido") \
-                .select("*") \
-                .eq("id_pedido", pedido["id_pedido"]) \
-                .execute().data
-
-            for item in detalle:
-
-                subtotal = item["cantidad"] * (
-                    item["precio_huevo"] + item["precio_logistico"]
-                )
-
-                todos_detalles.append({
-                    "id_pedido": pedido["id_pedido"],
-                    "cliente": pedido["clientes"]["nombre"],
-                    "vendedor": pedido["vendedor"],
-                    "referencia": item["referencia"],
-                    "color": item["color"],
-                    "cantidad": item["cantidad"],
-                    "empaque": item["empaque"],
-                    "precio_huevo": item["precio_huevo"],
-                    "precio_logistico": item["precio_logistico"],
-                    "subtotal": subtotal,
-                    "facturado": "Sí" if pedido["facturado"] else "No"
-                })
-
-        df_final = pd.DataFrame(todos_detalles)
-
-        st.dataframe(df_final, use_container_width=True)
-
-        st.divider()
-
-        # RESUMEN DEL DÍA
-        total_dia = df_final["subtotal"].sum()
-        total_facturado = df_final[df_final["facturado"] == "Sí"]["subtotal"].sum()
-        total_pendiente = total_dia - total_facturado
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Día", f"${total_dia:,.0f}")
-        col2.metric("Facturado", f"${total_facturado:,.0f}")
-        col3.metric("Pendiente", f"${total_pendiente:,.0f}")
-
-        st.divider()
-
-        # MARCAR PEDIDOS COMPLETOS COMO FACTURADOS
-        pedidos_pendientes = df_pedidos[df_pedidos["facturado"] == False]
-
-        if not pedidos_pendientes.empty:
-
-            pedido_sel = st.selectbox(
-                "Seleccionar Pedido para Marcar como Facturado",
-                pedidos_pendientes["id_pedido"]
-            )
-
-            if st.button("Marcar Pedido como Facturado"):
-
-                supabase.table("pedidos") \
-                    .update({"facturado": True}) \
-                    .eq("id_pedido", pedido_sel) \
-                    .execute()
-
-                st.success("Pedido facturado correctamente")
-                st.rerun()
-
+        if df_pedidos.empty:
+            st.warning(f"No hay pedidos programados para el {filtro_fecha}")
         else:
-            st.success("Todos los pedidos del día están facturados") 
+            todos_detalles = []
 
+            for _, pedido in df_pedidos.iterrows():
+                # Traer el detalle de cada pedido
+                detalle = supabase.table("detalle_pedido") \
+                    .select("*") \
+                    .eq("id_pedido", pedido["id_pedido"]) \
+                    .execute().data
+
+                # Extraer datos del cliente (que vienen como un diccionario por el join)
+                datos_cliente = pedido.get("clientes", {})
+                nombre_cliente = datos_cliente.get("nombre", "N/A")
+                forma_pago_cliente = datos_cliente.get("forma_de_pago", "No definida")
+
+                for item in detalle:
+                    # Cálculo de subtotal
+                    precio_h = item.get("precio_huevo", 0)
+                    precio_l = item.get("precio_logistico", 0)
+                    cantidad = item.get("cantidad", 0)
+                    subtotal = cantidad * (precio_h + precio_l)
+
+                    # Construcción de la fila del reporte
+                    todos_detalles.append({
+                        "ID Pedido": pedido["id_pedido"],
+                        "Cliente": nombre_cliente,
+                        "Vendedor": pedido.get("vendedor"),
+                        "Referencia": item.get("referencia"),
+                        "Color": item.get("color"),
+                        "Cantidad": cantidad,
+                        "Empaque": item.get("empaque"),
+                        "Precio Huevo": precio_h,
+                        "Precio Log.": precio_l,
+                        "Subtotal": subtotal,
+                        "Facturado": "Sí" if pedido.get("facturado") else "No",
+                        # --- NUEVAS VARIABLES AGREGADAS ---
+                        "Forma de Pago": forma_pago_cliente,
+                        "Observaciones": pedido.get("observaciones"),
+                        "Trazabilidad": pedido.get("ficha_de_trazabilidad"),
+                        "Etiqueta": pedido.get("tipo_etiqueta"),
+                        "Limpieza": pedido.get("tipo_limpieza"),
+                        "Detalle Cartera": pedido.get("detalle_cartera")
+                    })
+
+            df_final = pd.DataFrame(todos_detalles)
+
+            # Mostrar tabla principal
+            st.dataframe(df_final, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # --- SECCIÓN DE RESUMEN ---
+            total_dia = df_final["Subtotal"].sum()
+            # Filtramos por el string "Sí" que definimos arriba
+            total_facturado = df_final[df_final["Facturado"] == "Sí"]["Subtotal"].sum()
+            total_pendiente = total_dia - total_facturado
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total del Día", f"$ {total_dia:,.0f}")
+            col2.metric("Facturado", f"$ {total_facturado:,.0f}")
+            col3.metric("Pendiente", f"$ {total_pendiente:,.0f}")
+
+            st.divider()
+
+            # --- GESTIÓN DE FACTURACIÓN ---
+            st.subheader("Gestión de Facturación")
+            
+            # Solo mostrar los que no están facturados
+            pedidos_pendientes = df_pedidos[df_pedidos["facturado"] == False]
+
+            if not pedidos_pendientes.empty:
+                # Creamos una lista amigable para el selectbox
+                opciones_pedidos = {
+                    f"ID: {p['id_pedido']} - {p['clientes']['nombre']}": p['id_pedido'] 
+                    for _, p in pedidos_pendientes.iterrows()
+                }
+                
+                pedido_sel_label = st.selectbox(
+                    "Seleccionar pedido para marcar como COMPLETADO/FACTURADO",
+                    options=opciones_pedidos.keys()
+                )
+                
+                id_a_actualizar = opciones_pedidos[pedido_sel_label]
+
+                if st.button("Confirmar: Marcar como Facturado", type="primary"):
+                    supabase.table("pedidos") \
+                        .update({"facturado": True}) \
+                        .eq("id_pedido", id_a_actualizar) \
+                        .execute()
+
+                    st.success(f"¡Pedido {id_a_actualizar} actualizado con éxito!")
+                    st.rerun()
+            else:
+                st.success("🎉 ¡Excelente! Todos los pedidos de este día ya están facturados.")
+
+    except Exception as e:
+        st.error(f"Ocurrió un error al cargar los datos: {e}")
 # =====================================
 # 🚛 DASHBOARD DESPACHOS
 # =====================================
@@ -560,5 +593,6 @@ with tab5:
         vehiculos.columns = ["placa_vehiculo", "pedidos"]
 
         st.dataframe(vehiculos, use_container_width=True)
+
 
 
