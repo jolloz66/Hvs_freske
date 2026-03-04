@@ -44,13 +44,32 @@ DETALLE_CARTERA = [
     "No se encuentra al día, despacho sujeto a aprobación"
 ]
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+
+# 2. Diccionario de mapeo corregido
+PRODUCTOS_MAP = {
+    "0102": {"referencia": "C", "color": "rojo"},      # Corregido a C rojo
+    "0151": {"referencia": "B", "color": "blanco"},
+    "0202": {"referencia": "B", "color": "rojo"},
+    "0251": {"referencia": "A", "color": "blanco"},
+    "0203": {"referencia": "A", "color": "rojo"},
+    "0351": {"referencia": "AA", "color": "blanco"},
+    "0304": {"referencia": "AA", "color": "rojo"},
+    "0451": {"referencia": "AAA", "color": "blanco"},
+    "0405": {"referencia": "AAA", "color": "rojo"},
+    "0506": {"referencia": "Jumbo", "color": "rojo"}, # J mayúscula, color minúscula
+}
+
+
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "🛒 Nuevo Pedido",
     "🚚 Gestión Despachos",
     "📊 Dashboard",
     "🧾 Detalle Facturación",
-    "🚛 Despachos"
-])
+    "🚛 Despachos",
+    "📦 Inventario",
+    "📦Inventario de Materiales", 
+    "Auditoría y concicliación final"
+]) 
 
 # =====================================
 # 🛒 NUEVO PEDIDO
@@ -594,5 +613,334 @@ with tab5:
 
         st.dataframe(vehiculos, use_container_width=True)
 
+# =====================================
+# TAB 6: INVENTARIO CON HISTORIAL
+# =====================================
+
+with tab6:
+    st.header("Control de Inventario")
+
+    col_form, col_balance = st.columns([1, 2])
+
+    # =====================================================
+    # 📌 FORMULARIO DE REGISTRO
+    # =====================================================
+
+    with col_form:
+        st.subheader("Registrar Movimiento")
+
+        with st.form("form_registro_inventario"):
+
+            tipo_mov = st.selectbox("Tipo de Movimiento", ["Entrada", "Salida"])
+            cod_seleccionado = st.selectbox("Código de Producto", list(PRODUCTOS_MAP.keys()))
+
+            info_prod = PRODUCTOS_MAP[cod_seleccionado]
+
+            st.info(
+                f"**Referencia:** {info_prod['referencia']}  \n"
+                f"**Color:** {info_prod['color']}"
+            )
+
+            cantidad = st.number_input("Cantidad (Unidades)", min_value=1, step=1)
+            documento = st.text_input("N° Documento (Factura/Remisión)")
+            fecha_mov = st.date_input("Fecha", date.today())
+
+            btn_inventario = st.form_submit_button(
+                "Guardar Movimiento",
+                use_container_width=True
+            )
+
+            if btn_inventario:
+
+                datos_inv = {
+                    "fecha": fecha_mov.isoformat(),
+                    "tipo_movimiento": tipo_mov,
+                    "codigo_huevo": cod_seleccionado,
+                    "referencia": info_prod["referencia"],
+                    "color": info_prod["color"],
+                    "cantidad": cantidad,
+                    "documento": documento
+                }
+
+                try:
+                    supabase.table("inventario").insert(datos_inv).execute()
+                    st.success("Movimiento registrado con éxito.")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar: {e}")
+
+    # =====================================================
+    # 📊 BALANCE DE STOCK
+    # =====================================================
+
+    with col_balance:
+
+        st.subheader("📦 Balance de Stock Actual")
+
+        df_inv = pd.DataFrame()
+
+        try:
+            res_inv = supabase.table("inventario").select("*").execute()
+
+            if res_inv.data:
+                df_inv = pd.DataFrame(res_inv.data)
+
+                # Calcular valor neto
+                df_inv["valor_neto"] = df_inv.apply(
+                    lambda x: x["cantidad"]
+                    if x["tipo_movimiento"] == "Entrada"
+                    else -x["cantidad"],
+                    axis=1
+                )
+
+                # Agrupar en el orden correcto
+                balance = df_inv.groupby(
+                    ["codigo_huevo", "referencia", "color"]
+                )["valor_neto"].sum().reset_index()
+
+                # Renombrar columnas SIN depender del orden
+                balance = balance.rename(columns={
+                    "codigo_huevo": "Código",
+                    "referencia": "Referencia",
+                    "color": "Color",
+                    "valor_neto": "Stock Actual"
+                })
+
+                st.dataframe(balance, use_container_width=True, hide_index=True)
+
+                total_stock = balance["Stock Actual"].sum()
+                st.metric("Total Unidades en Bodega", f"{total_stock:,.0f}")
+
+            else:
+                st.info("No hay movimientos registrados aún.")
+
+        except Exception as e:
+            st.error(f"Error al cargar balance: {e}")
+
+    # =====================================================
+    # 📜 HISTORIAL DE MOVIMIENTOS
+    # =====================================================
+
+    st.divider()
+    st.subheader("📜 Historial de Movimientos Registrados")
+
+    if not df_inv.empty:
+
+        df_historial = df_inv[[
+            "fecha",
+            "tipo_movimiento",
+            "codigo_huevo",
+            "referencia",
+            "color",
+            "cantidad",
+            "documento"
+        ]].copy()
+
+        df_historial = df_historial.rename(columns={
+            "fecha": "Fecha",
+            "tipo_movimiento": "Movimiento",
+            "codigo_huevo": "Código",
+            "referencia": "Referencia",
+            "color": "Color",
+            "cantidad": "Cantidad",
+            "documento": "Documento"
+        })
+
+        st.dataframe(
+            df_historial.sort_values(by="Fecha", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+        st.write("No hay historial disponible.")
+
+# =====================================
+# TAB 7: INVENTARIO MATERIALES Y DOTACIÓN
+# =====================================
+
+# 1. Lista de Materiales (puedes ampliarla)
+PRODUCTOS_MATERIALES = {
+    "0601": "Bandeja de carton x 30*100", 
+    "0603": "Bandeja de carton x30*120",
+    "0608": "Caja de carton x 30",
+    "0604": "Estuche carton x12*210",
+    "0607": "Estuche Pet x 6",
+    "0614": "Polystretch",
+    "0701": "Camiseta tipo polo",
+    "0702": "Jean Hombre"
+}
+
+PROVEEDORES_LISTA = ["Empaques y Cartones", "Multiservicios", "Comolsa", "Darnel", "Ipack", "Otros"]
+
+with tab7: # Asegúrate de haber agregado "📦 Materiales" en la definición de st.tabs inicial
+    st.header("📦 Gestión de Insumos y Materiales")
+    
+    col_m1, col_m2 = st.columns([1, 2])
+
+    # --- COLUMNA 1: FORMULARIO DE REGISTRO ---
+    with col_m1:
+        st.subheader("Registrar Movimiento")
+        with st.form("form_materiales"):
+            tipo_mov_m = st.selectbox("Tipo de Movimiento", ["Entrada", "Salida"])
+            cat_m = st.selectbox("Categoría", ["Insumos", "Dotacion", "Papelería"])
+            cod_m = st.selectbox("Producto", list(PRODUCTOS_MATERIALES.keys()), 
+                                format_func=lambda x: f"{x} - {PRODUCTOS_MATERIALES[x]}")
+            
+            prov_m = st.selectbox("Proveedor / Origen", PROVEEDORES_LISTA)
+            cant_m = st.number_input("Cantidad", min_value=1, step=1)
+            doc_m = st.text_input("N° Documento (Factura/Remisión)")
+            
+            if st.form_submit_button("Guardar Material"):
+                nuevo_mat = {
+                    "fecha_registro": date.today().isoformat(),
+                    "numero_documento": doc_m,
+                    "codigo_producto": cod_m,
+                    "descripcion": PRODUCTOS_MATERIALES[cod_m],
+                    "lote_proveedor": prov_m,
+                    "cantidad": cant_m,
+                    "tipo_movimiento": tipo_mov_m,
+                    "categoria": cat_m
+                }
+                
+                try:
+                    supabase.table("inventario_materiales").insert(nuevo_mat).execute()
+                    st.success(f"Registrado: {PRODUCTOS_MATERIALES[cod_m]}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error al guardar: {e}")
+
+    # --- COLUMNA 2: BALANCE Y STOCK ---
+    with col_m2:
+        st.subheader("📋 Stock Actual de Almacén")
+        try:
+            res_m = supabase.table("inventario_materiales").select("*").execute()
+            if res_m.data:
+                df_m = pd.DataFrame(res_m.data)
+                
+                # Calcular cantidad neta (Entrada es positivo, Salida es negativo)
+                df_m['neta'] = df_m.apply(
+                    lambda x: x['cantidad'] if x['tipo_movimiento'] == "Entrada" else -x['cantidad'], 
+                    axis=1
+                )
+                
+                # Agrupar por descripción para ver el saldo
+                balance_m = df_m.groupby(['descripcion', 'categoria'])['neta'].sum().reset_index()
+                balance_m.columns = ['Descripción', 'Categoría', 'Existencias']
+                
+                # Mostrar solo los que tienen stock o mostrar todo
+                st.dataframe(balance_m, use_container_width=True, hide_index=True)
+                
+                # Alerta de stock bajo (ejemplo: menos de 100 unidades)
+                bajo_stock = balance_m[balance_m['Existencias'] < 100]
+                if not bajo_stock.empty:
+                    st.warning("⚠️ ¡Atención! Stock bajo en algunos insumos.")
+            else:
+                st.info("No hay registros de materiales aún.")
+        except Exception as e:
+            st.error(f"Error al cargar stock: {e}")
+
+    # --- HISTORIAL COMPLETO ABAJO ---
+    st.divider()
+    st.subheader("📜 Últimos Movimientos de Almacén")
+    if 'df_m' in locals() and not df_m.empty:
+        st.dataframe(
+            df_m[['fecha_registro', 'tipo_movimiento', 'descripcion', 'cantidad', 'lote_proveedor', 'numero_documento']]
+            .sort_values(by="fecha_registro", ascending=False),
+            use_container_width=True,
+            hide_index=True
+        )
+
+# =====================================
+# ⚖️ TAB 8: AUDITORÍA Y CONCILIACIÓN FINAL
+# =====================================
+
+with tab8:
+    st.header("⚖️ Auditoría: Ventas vs. Salidas de Inventario")
+    
+    fecha_auditoria = st.date_input("Fecha para conciliar", date.today(), key="audit_v_final")
+
+    try:
+        # 1. Obtener Pedidos Despachados
+        res_peds = supabase.table("pedidos").select("id_pedido").eq("fecha_despacho", fecha_auditoria.isoformat()).eq("estado", "Despachado").execute()
+        ids_pedidos = [p["id_pedido"] for p in res_peds.data] if res_peds.data else []
+
+        if not ids_pedidos:
+            st.warning(f"No hay pedidos confirmados como 'Despachado' para el {fecha_auditoria}.")
+        else:
+            # 2. Datos de Ventas y Movimientos Reales
+            res_det = supabase.table("detalle_pedido").select("*").in_("id_pedido", ids_pedidos).execute()
+            df_ventas = pd.DataFrame(res_det.data)
+            
+            # Salidas de Tab 6 (Huevos) y Tab 7 (Materiales)
+            res_inv_h = supabase.table("inventario").select("*").eq("fecha", fecha_auditoria.isoformat()).eq("tipo_movimiento", "Salida").execute()
+            res_inv_m = supabase.table("inventario_materiales").select("*").eq("fecha_registro", fecha_auditoria.isoformat()).eq("tipo_movimiento", "Salida").execute()
+
+            # --- SECCIÓN 1: HUEVOS ---
+            st.subheader("🥚 1. Balance de Huevos (Venta vs Salida Bodega)")
+            ventas_h = df_ventas.groupby(['referencia', 'color'])['cantidad'].sum().reset_index()
+            
+            if res_inv_h.data:
+                bod_h = pd.DataFrame(res_inv_h.data).groupby(['referencia', 'color'])['cantidad'].sum().reset_index()
+                cruce_h = pd.merge(ventas_h, bod_h, on=['referencia', 'color'], how='outer').fillna(0)
+                cruce_h.columns = ['Ref', 'Color', 'Vendido', 'Salida Bodega']
+                cruce_h['Diferencia'] = cruce_h['Vendido'] - cruce_h['Salida Bodega']
+                st.dataframe(cruce_h, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # --- SECCIÓN 2: MATERIALES (LÓGICA ESTRICTA) ---
+            st.subheader("📦 2. Balance de Materiales (Teórico vs Almacén)")
+
+            def calcular_material_estricto(row):
+                emp = str(row["empaque"]).lower()
+                cant_h = row["cantidad"]
+                
+                if "granel" in emp: return None
+
+                # A. MATERIAL PLÁSTICO (PET)
+                if "pet" in emp:
+                    cap = 6 if "6" in emp else 30 # Por defecto 6 si es petx6
+                    return {"cod": "0607", "tipo": "PLÁSTICO PET", "cant": math.ceil(cant_h / cap)}
+                
+                # B. ESTUCHES DE CARTÓN (x4, x12)
+                if "estuche" in emp:
+                    if "4" in emp: return {"cod": "0605", "tipo": "ESTUCHE CARTÓN x4", "cant": math.ceil(cant_h / 4)}
+                    if "12" in emp: return {"cod": "0604", "tipo": "ESTUCHE CARTÓN x12", "cant": math.ceil(cant_h / 12)}
+
+                # C. BANDEJAS DE CARTÓN (Para cualquier xN: x15, x30, x45, x60, x75...)
+                # Se compara contra la unidad de bandeja de 30 huevos
+                return {"cod": "0601", "tipo": "BANDEJA CARTÓN (Equiv. x30)", "cant": math.ceil(cant_h / 30)}
+
+            df_ventas['audit'] = df_ventas.apply(calcular_material_estricto, axis=1)
+            df_teorico = pd.DataFrame([x for x in df_ventas['audit'] if x is not None])
+
+            if not df_teorico.empty:
+                res_teorico = df_teorico.groupby(['cod', 'tipo'])['cant'].sum().reset_index()
+
+                if res_inv_m.data:
+                    res_real = pd.DataFrame(res_inv_m.data).groupby('codigo_producto')['cantidad'].sum().reset_index()
+                    res_real.columns = ['cod', 'Cant. Real']
+
+                    cruce_m = pd.merge(res_teorico, res_real, on='cod', how='outer').fillna(0)
+                    cruce_m['Diferencia'] = cruce_m['Cant. Real'] - cruce_m['cant']
+                    
+                    # Limpieza para mostrar
+                    final_m = cruce_m[['tipo', 'cant', 'Cant. Real', 'Diferencia']]
+                    final_m.columns = ['Material', 'Debería Salir (Ventas)', 'Salió Real (Tab 7)', 'Desbalance']
+                    
+                    st.dataframe(final_m, use_container_width=True, hide_index=True)
+
+                    # Alertas
+                    for _, r in final_m.iterrows():
+                        if r['Desbalance'] < 0:
+                            st.error(f"🚨 Fuga en {r['Material']}: Faltan {abs(int(r['Desbalance']))} unidades por registrar en Almacén.")
+                        elif r['Desbalance'] > 0:
+                            st.warning(f"⚠️ Sobrecosto: Se gastaron {int(r['Desbalance'])} unidades de {r['Material']} adicionales.")
+                else:
+                    st.error("❌ No hay registros de salida de materiales en la Tab 7 para hoy.")
+            
+    except Exception as e:
+        st.error(f"Error en auditoría: {e}")
 
 
