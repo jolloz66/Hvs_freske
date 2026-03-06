@@ -12,17 +12,6 @@ SUPABASE_URL = "https://fhhetpvgxcoraicfryjf.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoaGV0cHZneGNvcmFpY2ZyeWpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODA2NDMsImV4cCI6MjA4Nzg1NjY0M30.xF7Makb-cQhrhnV7EomOQVzbxt6wSpsct5Wv7KOyb3c"
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-col1, col2 = st.columns([1,5])
-
-with col1:
-    st.image("archivos/logotipo huevos freske.png", width=120)
-
-with col2:
-    st.title("Sistema de Gestión Huevos Freske")
-    st.caption("Pedidos • Inventario • Etiquetas")
-
-st.divider()
-
 
 st.set_page_config(layout="wide")
 st.title("📦 Sistema Comercial - Huevos")
