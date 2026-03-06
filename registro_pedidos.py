@@ -61,7 +61,7 @@ PRODUCTOS_MAP = {
 }
 
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "🛒 Nuevo Pedido",
     "🚚 Gestión Despachos",
     "📊 Dashboard",
@@ -1310,6 +1310,7 @@ with tab10:
     else:
 
         st.info("Aún no hay registros")
+
 
 
 
