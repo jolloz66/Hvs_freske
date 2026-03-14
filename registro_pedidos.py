@@ -18,7 +18,7 @@ st.set_page_config(layout="wide")
 col1, col2 = st.columns([1,5])
 
 with col2:
-    st.title("Sistema de Gestión Logitica Huevos Freske")
+    st.title("Sistema de Gestión Logística Huevos Freske")
 
 st.title("📦 Sistema Comercial - Huevos")
 # =====================================
