@@ -57,12 +57,12 @@ PRODUCTOS_MAP = {
     "0151": {"referencia": "B", "color": "blanco"},
     "0202": {"referencia": "B", "color": "rojo"},
     "0251": {"referencia": "A", "color": "blanco"},
-    "0203": {"referencia": "A", "color": "rojo"},
+    "0302": {"referencia": "A", "color": "rojo"},
     "0351": {"referencia": "AA", "color": "blanco"},
-    "0304": {"referencia": "AA", "color": "rojo"},
+    "0402": {"referencia": "AA", "color": "rojo"},
     "0451": {"referencia": "AAA", "color": "blanco"},
-    "0405": {"referencia": "AAA", "color": "rojo"},
-    "0506": {"referencia": "Jumbo", "color": "rojo"}, # J mayúscula, color minúscula
+    "0502": {"referencia": "AAA", "color": "rojo"},
+    "0602": {"referencia": "Jumbo", "color": "rojo"}, # J mayúscula, color minúscula
 }
 
 
