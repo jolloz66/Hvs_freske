@@ -774,48 +774,125 @@ with tab6:
 
     with col_balance:
 
-        st.subheader("📦 Balance de Stock Actual")
-
-        df_inv = pd.DataFrame()
+        st.subheader("📦 Inventario y Movimientos")
 
         try:
+
             res_inv = supabase.table("inventario").select("*").execute()
 
-            if res_inv.data:
-                df_inv = pd.DataFrame(res_inv.data)
+            if not res_inv.data:
+                st.info("No hay movimientos registrados aún.")
+                st.stop()
 
-                # Calcular valor neto
-                df_inv["valor_neto"] = df_inv.apply(
-                    lambda x: x["cantidad"]
-                    if x["tipo_movimiento"] == "Entrada"
-                    else -x["cantidad"],
-                    axis=1
+            df_inv = pd.DataFrame(res_inv.data)
+
+            # =====================================================
+            # CALCULO VALOR NETO
+            # =====================================================
+
+            df_inv["valor_neto"] = df_inv.apply(
+                lambda x: x["cantidad"]
+                if x["tipo_movimiento"] == "Entrada"
+                else -x["cantidad"],
+                axis=1
+            )
+
+            # =====================================================
+            # 1️⃣ MOVIMIENTOS DEL DÍA
+            # =====================================================
+
+            st.subheader("📅 Movimientos del Día")
+
+            fecha_movimientos = st.date_input(
+                "Seleccionar fecha movimientos",
+                key="movimientos_dia_tab6"
+            )
+
+            df_mov_dia = df_inv[df_inv["fecha"] == fecha_movimientos.isoformat()]
+
+            if df_mov_dia.empty:
+                st.info("No hubo movimientos ese día.")
+            else:
+                st.dataframe(
+                    df_mov_dia[
+                        [
+                            "fecha",
+                            "tipo_movimiento",
+                            "codigo_huevo",
+                            "referencia",
+                            "color",
+                            "cantidad",
+                            "documento"
+                        ]
+                    ],
+                    use_container_width=True,
+                    hide_index=True
                 )
 
-                # Agrupar en el orden correcto
-                balance = df_inv.groupby(
+            st.divider()
+
+            # =====================================================
+            # 2️⃣ INVENTARIO DEL DÍA (CORTE DIARIO)
+            # =====================================================
+
+            st.subheader("📦 Inventario por Fecha")
+
+            fecha_stock = st.date_input(
+                "Seleccionar fecha de inventario",
+                key="stock_fecha_tab6"
+            )
+
+            df_stock_dia = df_inv[df_inv["fecha"] == fecha_stock.isoformat()]
+
+            if not df_stock_dia.empty:
+
+                stock_dia = df_stock_dia.groupby(
                     ["codigo_huevo", "referencia", "color"]
                 )["valor_neto"].sum().reset_index()
 
-                # Renombrar columnas SIN depender del orden
-                balance = balance.rename(columns={
+                stock_dia = stock_dia.rename(columns={
                     "codigo_huevo": "Código",
                     "referencia": "Referencia",
                     "color": "Color",
-                    "valor_neto": "Stock Actual"
+                    "valor_neto": "Stock del Día"
                 })
 
-                st.dataframe(balance, use_container_width=True, hide_index=True)
+                st.dataframe(stock_dia, use_container_width=True, hide_index=True)
 
-                total_stock = balance["Stock Actual"].sum()
-                st.metric("Total Unidades en Bodega", f"{total_stock:,.0f}")
+                total_dia = stock_dia["Stock del Día"].sum()
+
+                st.metric("Total Unidades ese Día", f"{total_dia:,.0f}")
 
             else:
-                st.info("No hay movimientos registrados aún.")
+                st.info("No hay inventario registrado ese día.")
+
+            st.divider()
+
+            # =====================================================
+            # 3️⃣ STOCK ACUMULADO REAL
+            # =====================================================
+
+            st.subheader("🏭 Stock Actual Acumulado")
+
+            stock_total = df_inv.groupby(
+                ["codigo_huevo", "referencia", "color"]
+            )["valor_neto"].sum().reset_index()
+
+            stock_total = stock_total.rename(columns={
+                "codigo_huevo": "Código",
+                "referencia": "Referencia",
+                "color": "Color",
+                "valor_neto": "Stock Actual"
+            })
+
+            st.dataframe(stock_total, use_container_width=True, hide_index=True)
+
+            total_stock = stock_total["Stock Actual"].sum()
+
+            st.metric("Total Unidades en Bodega", f"{total_stock:,.0f}")
 
         except Exception as e:
             st.error(f"Error al cargar balance: {e}")
-
     # =====================================================
     # 📜 HISTORIAL DE MOVIMIENTOS
     # =====================================================
@@ -853,7 +930,6 @@ with tab6:
 
     else:
         st.write("No hay historial disponible.")
-
 # =====================================
 # TAB 7: INVENTARIO MATERIALES Y DOTACIÓN
 # =====================================
