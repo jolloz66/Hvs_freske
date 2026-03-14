@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
-from datetime import date
+from datetime import date 
 import numpy as np
 
 # =====================================
@@ -10,12 +10,17 @@ import numpy as np
 
 SUPABASE_URL = "https://fhhetpvgxcoraicfryjf.supabase.co"
 SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZoaGV0cHZneGNvcmFpY2ZyeWpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIyODA2NDMsImV4cCI6MjA4Nzg1NjY0M30.xF7Makb-cQhrhnV7EomOQVzbxt6wSpsct5Wv7KOyb3c"
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY) 
 
 
 st.set_page_config(layout="wide")
-st.title("📦 Sistema Comercial - Huevos")
 
+col1, col2 = st.columns([1,5])
+
+with col2:
+    st.title("Sistema de Gestión de Pedidos")
+
+st.title("📦 Sistema Comercial - Huevos")
 # =====================================
 # LISTAS FIJAS
 # =====================================
@@ -23,7 +28,7 @@ st.title("📦 Sistema Comercial - Huevos")
 VENDEDORES = ["01","02","03","06","08","10","11","12","14","15","16","18","24","25","26","23"]
 REFERENCIAS = ["A","AA","AAA","B","C","JUMBO"]
 COLORES = ["rojo","blanco"]
-EMPAQUES = ["petx6","petx30","x15","x30","x10","estuche x12","estuchex4","x11","x12","x20","x22","x45","x60","x75","Granel"]
+EMPAQUES = ["petx6","petx30","x15","x30","x10","estuche x12","estuchex4","x11","x12","x20","x22","x45","x60","x75","Granel","Canasta plastica"]
 CANALES = ["horeca","retail","supermercado","tienda a tienda","institucional","autoservicios"]
 FORMAS_PAGO = ["credito","contado"]
 PLACAS = ["FBV679", "LKN999", "USB391", "UPQ214", "YAO09F"]
@@ -45,7 +50,6 @@ DETALLE_CARTERA = [
     "Al día a la toma del pedido, requiere verificación a la fecha de despacho",
     "No se encuentra al día, despacho sujeto a aprobación"
 ]
-
 
 # 2. Diccionario de mapeo corregido
 PRODUCTOS_MAP = {
@@ -69,11 +73,11 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
     "🧾 Detalle Facturación",
     "🚛 Despachos",
     "📦 Inventario",
-    "📦Inventario de Materiales", 
-    "Auditoría y concicliación final",
-     "🧮 Consumo Teórico de materiales",
+    "📦 Inventario de Materiales", 
+    "⚖️ Auditoría y conciliación final", 
+    "🧮 Consumo Teórico de materiales",
     "🏷️ Inventario de Etiquetas"
-]) 
+])
 
 # =====================================
 # 🛒 NUEVO PEDIDO
@@ -83,55 +87,95 @@ with tab1:
 
     st.header("Registro de Pedido")
 
+    # =========================
+    # CONTROL LIMPIEZA FORMULARIO
+    # =========================
+
+    if "limpiar_formulario" not in st.session_state:
+        st.session_state.limpiar_formulario = False
+
+    if st.session_state.limpiar_formulario:
+
+        st.session_state.cliente = ""
+        st.session_state.observaciones = ""
+        st.session_state.precio_huevo = 0.0
+        st.session_state.precio_logistico = 0.0
+        st.session_state.cantidad = 1
+
+        st.session_state.limpiar_formulario = False
+
+    # =========================
+    # CARRITO
+    # =========================
+
     if "carrito" not in st.session_state:
         st.session_state.carrito = pd.DataFrame(columns=[
-            "referencia","color","empaque",
-            "precio_huevo","precio_logistico",
-            "cantidad","subtotal"
+            "referencia",
+            "color",
+            "empaque",
+            "precio_huevo",
+            "precio_logistico",
+            "cantidad",
+            "subtotal"
         ])
 
-    vendedor = st.selectbox("Vendedor", VENDEDORES)
-    cliente = st.text_input("Nombre del Cliente")
-    canal = st.selectbox("Canal Comercial", CANALES)
-    forma_pago = st.selectbox("Forma de Pago", FORMAS_PAGO)
-    fecha_despacho = st.date_input("Fecha Despacho")
-    observaciones = st.text_area("Observaciones")
+    # =========================
+    # DATOS GENERALES
+    # =========================
+
+    vendedor = st.selectbox("Vendedor", VENDEDORES, key="vendedor")
+    cliente = st.text_input("Nombre del Cliente", key="cliente")
+    canal = st.selectbox("Canal Comercial", CANALES, key="canal")
+    forma_pago = st.selectbox("Forma de Pago", FORMAS_PAGO, key="forma_pago")
+    fecha_despacho = st.date_input("Fecha Despacho", key="fecha_despacho")
+    observaciones = st.text_area("Observaciones", key="observaciones")
 
     ficha_trazabilidad = st.radio(
         "¿Tiene ficha de trazabilidad?",
-        ["Sí", "No"]
+        ["Sí", "No"],
+        key="ficha_trazabilidad"
     )
 
     st.divider()
 
-    # ===== NUEVOS CAMPOS =====
+    # =========================
+    # CAMPOS ADICIONALES
+    # =========================
+
     colX, colY, colZ = st.columns(3)
 
     with colX:
-        tipo_etiqueta = st.selectbox("Tipo de etiqueta", TIPO_ETIQUETA)
+        tipo_etiqueta = st.selectbox("Tipo de etiqueta", TIPO_ETIQUETA, key="tipo_etiqueta")
 
     with colY:
-        tipo_limpieza = st.selectbox("Tipo de limpieza", TIPO_LIMPIEZA)
+        tipo_limpieza = st.selectbox("Tipo de limpieza", TIPO_LIMPIEZA, key="tipo_limpieza")
 
     with colZ:
-        detalle_cartera = st.selectbox("Estado de cartera", DETALLE_CARTERA)
+        detalle_cartera = st.selectbox("Estado de cartera", DETALLE_CARTERA, key="detalle_cartera")
 
     st.divider()
 
-    # ===== PRODUCTO =====
+    # =========================
+    # PRODUCTO
+    # =========================
+
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        referencia = st.selectbox("Referencia", REFERENCIAS)
-        precio_huevo = st.number_input("Precio Huevo", min_value=0.0)
+        referencia = st.selectbox("Referencia", REFERENCIAS, key="referencia")
+        precio_huevo = st.number_input("Precio Huevo", min_value=0.0, key="precio_huevo")
 
     with col2:
-        color = st.selectbox("Color", COLORES)
-        precio_logistico = st.number_input("Precio Logístico", min_value=0.0)
+        color = st.selectbox("Color", COLORES, key="color")
+        precio_logistico = st.number_input("Precio Logístico", min_value=0.0, key="precio_logistico")
 
     with col3:
-        empaque = st.selectbox("Empaque", EMPAQUES)
-        cantidad = st.number_input("Cantidad", min_value=1)
+        empaque = st.selectbox("Empaque", EMPAQUES, key="empaque")
+        cantidad = st.number_input("Cantidad", min_value=1, key="cantidad")
+
+    # =========================
+    # AGREGAR PRODUCTO
+    # =========================
 
     if st.button("Agregar al carrito"):
 
@@ -152,17 +196,55 @@ with tab1:
             ignore_index=True
         )
 
+        st.rerun()
+
+    # =========================
+    # CARRITO EDITABLE
+    # =========================
+
     st.subheader("Carrito")
-    st.dataframe(st.session_state.carrito, use_container_width=True)
+
+    if not st.session_state.carrito.empty:
+
+        carrito_editado = st.data_editor(
+            st.session_state.carrito,
+            column_config={
+                "referencia": st.column_config.Column(disabled=True),
+                "color": st.column_config.Column(disabled=True),
+                "empaque": st.column_config.Column(disabled=True),
+                "subtotal": st.column_config.Column(disabled=True)
+            },
+            num_rows="dynamic",
+            use_container_width=True,
+            key="editor_carrito"
+        )
+
+        st.session_state.carrito = carrito_editado
+
+        # recalcular subtotal
+        st.session_state.carrito["subtotal"] = (
+            (st.session_state.carrito["precio_huevo"] +
+             st.session_state.carrito["precio_logistico"])
+            * st.session_state.carrito["cantidad"]
+        )
+
+    else:
+        st.info("El carrito está vacío")
+
+    # =========================
+    # TOTAL PEDIDO
+    # =========================
 
     total_pedido = st.session_state.carrito["subtotal"].sum()
+
     st.markdown(f"### 💰 Total Pedido: ${total_pedido:,.2f}")
 
-    # -----------------------------
+    # =========================
     # CREAR O BUSCAR CLIENTE
-    # -----------------------------
+    # =========================
 
     def obtener_o_crear_cliente(nombre, canal, forma_pago):
+
         response = supabase.table("clientes").select("*").eq("nombre", nombre).execute()
 
         if response.data:
@@ -175,18 +257,21 @@ with tab1:
         }
 
         insert = supabase.table("clientes").insert(nuevo_cliente).execute()
+
         return insert.data[0]["id_cliente"]
 
-    # -----------------------------
+    # =========================
     # GUARDAR PEDIDO
-    # -----------------------------
+    # =========================
 
     if st.button("Guardar Pedido Completo"):
 
         if cliente.strip() == "":
-            st.error("El cliente es obligatorio.")
+            st.error("El cliente es obligatorio")
+
         elif st.session_state.carrito.empty:
-            st.error("El carrito está vacío.")
+            st.error("El carrito está vacío")
+
         else:
 
             id_cliente = obtener_o_crear_cliente(cliente, canal, forma_pago)
@@ -206,11 +291,13 @@ with tab1:
             }
 
             pedido_resp = supabase.table("pedidos").insert(pedido_data).execute()
+
             id_pedido = pedido_resp.data[0]["id_pedido"]
 
             detalles = []
 
             for _, row in st.session_state.carrito.iterrows():
+
                 detalles.append({
                     "id_pedido": id_pedido,
                     "referencia": row["referencia"],
@@ -223,9 +310,14 @@ with tab1:
 
             supabase.table("detalle_pedido").insert(detalles).execute()
 
+            # limpiar carrito
             st.session_state.carrito = st.session_state.carrito.iloc[0:0]
 
+            # limpiar formulario
+            st.session_state.limpiar_formulario = True
+
             st.success(f"✅ Pedido guardado correctamente. Código: {id_pedido}")
+
             st.rerun()
 
 # =====================================
@@ -366,6 +458,10 @@ with tab3:
         emp = str(row["empaque"]).lower()
         huevos = row["cantidad"]
 
+        # CANASTA PLASTICA (30 huevos por canasta)
+        if "canasta plastica" in emp:
+            return math.ceil(huevos / 30)
+
         numeros = ''.join(filter(str.isdigit, emp))
 
         if not numeros:
@@ -429,6 +525,132 @@ with tab3:
         ).fillna(0)
 
         st.line_chart(graf_emp)
+
+# =====================================
+# 🧾 FACTURACIÓN DETALLADA POR DÍA
+# =====================================
+
+with tab4:
+    st.header("Facturación Detallada del Día")
+
+    # Selección de fecha
+    filtro_fecha = st.date_input("Selecciona la Fecha de Despacho")
+
+    # 1. CONSULTA A SUPABASE
+    # Traemos campos de 'pedidos' y campos específicos de la relación 'clientes'
+    campos_query = (
+        "*, "
+        "clientes(nombre, forma_de_pago)"
+    )
+
+    try:
+        resultado_pedidos = supabase.table("pedidos") \
+            .select(campos_query) \
+            .eq("fecha_despacho", filtro_fecha.isoformat()) \
+            .execute()
+        
+        pedidos = resultado_pedidos.data
+        df_pedidos = pd.DataFrame(pedidos)
+
+        if df_pedidos.empty:
+            st.warning(f"No hay pedidos programados para el {filtro_fecha}")
+        else:
+            todos_detalles = []
+
+            for _, pedido in df_pedidos.iterrows():
+                # Traer el detalle de cada pedido
+                detalle = supabase.table("detalle_pedido") \
+                    .select("*") \
+                    .eq("id_pedido", pedido["id_pedido"]) \
+                    .execute().data
+
+                # Extraer datos del cliente (que vienen como un diccionario por el join)
+                datos_cliente = pedido.get("clientes", {})
+                nombre_cliente = datos_cliente.get("nombre", "N/A")
+                forma_pago_cliente = datos_cliente.get("forma_de_pago", "No definida")
+
+                for item in detalle:
+                    # Cálculo de subtotal
+                    precio_h = item.get("precio_huevo", 0)
+                    precio_l = item.get("precio_logistico", 0)
+                    cantidad = item.get("cantidad", 0)
+                    subtotal = cantidad * (precio_h + precio_l)
+
+                    # Construcción de la fila del reporte
+                    todos_detalles.append({
+                        "ID Pedido": pedido["id_pedido"],
+                        "Cliente": nombre_cliente,
+                        "Vendedor": pedido.get("vendedor"),
+                        "Referencia": item.get("referencia"),
+                        "Color": item.get("color"),
+                        "Cantidad": cantidad,
+                        "Empaque": item.get("empaque"),
+                        "Precio Huevo": precio_h,
+                        "Precio Log.": precio_l,
+                        "Subtotal": subtotal,
+                        "Facturado": "Sí" if pedido.get("facturado") else "No",
+                        # --- NUEVAS VARIABLES AGREGADAS ---
+                        "Forma de Pago": forma_pago_cliente,
+                        "Observaciones": pedido.get("observaciones"),
+                        "Trazabilidad": pedido.get("ficha_de_trazabilidad"),
+                        "Etiqueta": pedido.get("tipo_etiqueta"),
+                        "Limpieza": pedido.get("tipo_limpieza"),
+                        "Detalle Cartera": pedido.get("detalle_cartera")
+                    })
+
+            df_final = pd.DataFrame(todos_detalles)
+
+            # Mostrar tabla principal
+            st.dataframe(df_final, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # --- SECCIÓN DE RESUMEN ---
+            total_dia = df_final["Subtotal"].sum()
+            # Filtramos por el string "Sí" que definimos arriba
+            total_facturado = df_final[df_final["Facturado"] == "Sí"]["Subtotal"].sum()
+            total_pendiente = total_dia - total_facturado
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Total del Día", f"$ {total_dia:,.0f}")
+            col2.metric("Facturado", f"$ {total_facturado:,.0f}")
+            col3.metric("Pendiente", f"$ {total_pendiente:,.0f}")
+
+            st.divider()
+
+            # --- GESTIÓN DE FACTURACIÓN ---
+            st.subheader("Gestión de Facturación")
+            
+            # Solo mostrar los que no están facturados
+            pedidos_pendientes = df_pedidos[df_pedidos["facturado"] == False]
+
+            if not pedidos_pendientes.empty:
+                # Creamos una lista amigable para el selectbox
+                opciones_pedidos = {
+                    f"ID: {p['id_pedido']} - {p['clientes']['nombre']}": p['id_pedido'] 
+                    for _, p in pedidos_pendientes.iterrows()
+                }
+                
+                pedido_sel_label = st.selectbox(
+                    "Seleccionar pedido para marcar como COMPLETADO/FACTURADO",
+                    options=opciones_pedidos.keys()
+                )
+                
+                id_a_actualizar = opciones_pedidos[pedido_sel_label]
+
+                if st.button("Confirmar: Marcar como Facturado", type="primary"):
+                    supabase.table("pedidos") \
+                        .update({"facturado": True}) \
+                        .eq("id_pedido", id_a_actualizar) \
+                        .execute()
+
+                    st.success(f"¡Pedido {id_a_actualizar} actualizado con éxito!")
+                    st.rerun()
+            else:
+                st.success("🎉 ¡Excelente! Todos los pedidos de este día ya están facturados.")
+
+    except Exception as e:
+        st.error(f"Ocurrió un error al cargar los datos: {e}")
 
 
 
