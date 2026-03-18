@@ -877,98 +877,172 @@ with tab6:
 # TAB 7: INVENTARIO MATERIALES Y DOTACIÓN
 # =====================================
 
-# 1. Lista de Materiales (puedes ampliarla)
+
+# =========================
+# 📦 DICCIONARIOS
+# =========================
 PRODUCTOS_MATERIALES = {
     "0601": "Bandeja de carton x 30*100", 
-    "0603": "Bandeja de carton x30*120",
+    "0603": "Bandeja de carton x 30*120",
+    "0609": "Caja de carton x 12",
     "0608": "Caja de carton x 30",
+    "0610": "Caja de carton x 6",
+    "0632": "Cuchillos",
+    "0704": "Delantal antifluido manga larga", 
+    "0635": "Esquinas", 
+    "0634": "Estuche carton x12*120",
     "0604": "Estuche carton x12*210",
+    "0606": "Estuche carton x6",
+    "0625": "Gorros desechables x100",
+    "0627": "Guantes de nitrillo azul TL*100",
+    "0628": "Guantes de nitrillo azul TXL*100",
+    "0629": "Guantes de poliuretano",
+    "0703": "Jean Dama", 
+    "0618": "Laminas de carton",
+    "0617": "Pistola platiflechas",
+    "0615": "Plastiflechas x 1000", 
+    "0626": "Tapabocas*50",
     "0607": "Estuche Pet x 6",
     "0614": "Polystretch",
     "0701": "Camiseta tipo polo",
-    "0702": "Jean Hombre"
+    "0702": "Jean Hombre", 
+    "0605": "Tapas de carton"
 }
 
 PROVEEDORES_LISTA = ["Empaques y Cartones", "Multiservicios", "Comolsa", "Darnel", "Ipack", "Otros"]
 
-with tab7: # Asegúrate de haber agregado "📦 Materiales" en la definición de st.tabs inicial
-    st.header("📦 Gestión de Insumos y Materiales")
-    
-    col_m1, col_m2 = st.columns([1, 2])
+with tab7:
 
-    # --- COLUMNA 1: FORMULARIO DE REGISTRO ---
-    with col_m1:
+    st.header("📦 Gestión de Insumos y Materiales")
+
+    col1, col2 = st.columns([1,2])
+
+    # =====================================
+    # 📝 FORMULARIO
+    # =====================================
+    with col1:
         st.subheader("Registrar Movimiento")
+
         with st.form("form_materiales"):
-            tipo_mov_m = st.selectbox("Tipo de Movimiento", ["Entrada", "Salida"])
-            cat_m = st.selectbox("Categoría", ["Insumos", "Dotacion", "Papelería"])
-            cod_m = st.selectbox("Producto", list(PRODUCTOS_MATERIALES.keys()), 
-                                format_func=lambda x: f"{x} - {PRODUCTOS_MATERIALES[x]}")
-            
-            prov_m = st.selectbox("Proveedor / Origen", PROVEEDORES_LISTA)
-            cant_m = st.number_input("Cantidad", min_value=1, step=1)
-            doc_m = st.text_input("N° Documento (Factura/Remisión)")
-            
-            if st.form_submit_button("Guardar Material"):
-                nuevo_mat = {
+
+            tipo = st.selectbox("Tipo", ["Entrada", "Salida"])
+            categoria = st.selectbox("Categoría", ["Insumos", "Dotacion", "Papelería"])
+
+            codigo = st.selectbox(
+                "Producto",
+                list(PRODUCTOS_MATERIALES.keys()),
+                format_func=lambda x: f"{x} - {PRODUCTOS_MATERIALES[x]}"
+            )
+
+            proveedor = st.selectbox("Proveedor", PROVEEDORES_LISTA)
+            cantidad = st.number_input("Cantidad", min_value=1, step=1)
+            documento = st.text_input("Documento")
+
+            if st.form_submit_button("Guardar"):
+
+                data = {
                     "fecha_registro": date.today().isoformat(),
-                    "numero_documento": doc_m,
-                    "codigo_producto": cod_m,
-                    "descripcion": PRODUCTOS_MATERIALES[cod_m],
-                    "lote_proveedor": prov_m,
-                    "cantidad": cant_m,
-                    "tipo_movimiento": tipo_mov_m,
-                    "categoria": cat_m
+                    "codigo_producto": codigo,
+                    "descripcion": PRODUCTOS_MATERIALES[codigo],
+                    "categoria": categoria,
+                    "tipo_movimiento": tipo,
+                    "cantidad": cantidad,
+                    "lote_proveedor": proveedor,
+                    "numero_documento": documento
                 }
-                
+
                 try:
-                    supabase.table("inventario_materiales").insert(nuevo_mat).execute()
-                    st.success(f"Registrado: {PRODUCTOS_MATERIALES[cod_m]}")
+                    supabase.table("inventario_materiales").insert(data).execute()
+                    st.success("Movimiento guardado")
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error al guardar: {e}")
+                    st.error(e)
 
-    # --- COLUMNA 2: BALANCE Y STOCK ---
-    with col_m2:
-        st.subheader("📋 Stock Actual de Almacén")
+    # =====================================
+    # 📊 VISUALIZACIÓN
+    # =====================================
+    with col2:
+
         try:
-            res_m = supabase.table("inventario_materiales").select("*").execute()
-            if res_m.data:
-                df_m = pd.DataFrame(res_m.data)
-                
-                # Calcular cantidad neta (Entrada es positivo, Salida es negativo)
-                df_m['neta'] = df_m.apply(
-                    lambda x: x['cantidad'] if x['tipo_movimiento'] == "Entrada" else -x['cantidad'], 
+            res = supabase.table("inventario_materiales").select("*").execute()
+
+            if not res.data:
+                st.info("Sin datos")
+            else:
+                df = pd.DataFrame(res.data)
+
+                # -------------------------
+                # LIMPIEZA
+                # -------------------------
+                df['fecha_registro'] = pd.to_datetime(df['fecha_registro'])
+
+                df['neta'] = df.apply(
+                    lambda x: x['cantidad'] if x['tipo_movimiento']=="Entrada" else -x['cantidad'],
                     axis=1
                 )
-                
-                # Agrupar por descripción para ver el saldo
-                balance_m = df_m.groupby(['descripcion', 'categoria'])['neta'].sum().reset_index()
-                balance_m.columns = ['Descripción', 'Categoría', 'Existencias']
-                
-                # Mostrar solo los que tienen stock o mostrar todo
-                st.dataframe(balance_m, use_container_width=True, hide_index=True)
-                
-                # Alerta de stock bajo (ejemplo: menos de 100 unidades)
-                bajo_stock = balance_m[balance_m['Existencias'] < 100]
-                if not bajo_stock.empty:
-                    st.warning("⚠️ ¡Atención! Stock bajo en algunos insumos.")
-            else:
-                st.info("No hay registros de materiales aún.")
-        except Exception as e:
-            st.error(f"Error al cargar stock: {e}")
 
-    # --- HISTORIAL COMPLETO ABAJO ---
+                # =========================
+                # 📅 FILTRO
+                # =========================
+                st.subheader("📅 Filtro de Fecha")
+                fecha_sel = st.date_input("Selecciona fecha", value=date.today())
+                fecha_dt = pd.to_datetime(fecha_sel)
+
+                # =========================
+                # 📅 MOVIMIENTOS DEL DÍA
+                # =========================
+                st.subheader("📅 Movimientos del Día")
+
+                mov_dia = df[df['fecha_registro'].dt.date == fecha_sel]
+
+                st.dataframe(
+                    mov_dia[['fecha_registro','tipo_movimiento','descripcion','cantidad','lote_proveedor']],
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # =========================
+                # 📦 STOCK A LA FECHA
+                # =========================
+                st.subheader("📦 Stock a la Fecha")
+
+                df_filtrado = df[df['fecha_registro'] <= fecha_dt]
+
+                stock = (
+                    df_filtrado
+                    .groupby(['codigo_producto','descripcion','categoria'])['neta']
+                    .sum()
+                    .reset_index()
+                )
+
+                stock.columns = ["Código","Descripción","Categoría","Stock"]
+
+                st.dataframe(
+                    stock.sort_values(by="Stock"),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+                # ALERTA
+                bajo = stock[stock["Stock"] < 100]
+                if not bajo.empty:
+                    st.warning("⚠️ Stock bajo detectado")
+
+        except Exception as e:
+            st.error(e)
+
+    # =====================================
+    # 📜 HISTÓRICO
+    # =====================================
     st.divider()
-    st.subheader("📜 Últimos Movimientos de Almacén")
-    if 'df_m' in locals() and not df_m.empty:
+    st.subheader("📜 Histórico Completo")
+
+    if 'df' in locals():
         st.dataframe(
-            df_m[['fecha_registro', 'tipo_movimiento', 'descripcion', 'cantidad', 'lote_proveedor', 'numero_documento']]
-            .sort_values(by="fecha_registro", ascending=False),
+            df.sort_values(by="fecha_registro", ascending=False),
             use_container_width=True,
             hide_index=True
         )
-
 # =====================================
 # ⚖️ TAB 8: AUDITORÍA Y CONCILIACIÓN FINAL
 # =====================================
