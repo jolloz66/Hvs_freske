@@ -1403,6 +1403,202 @@ with tab9:
 
 
 
+with tab10:
+
+    st.header("🏷️ Inventario de Etiquetas")
+
+    # =========================
+    # LISTAS CONTROLADAS
+    # =========================
+
+    MARCAS_ETIQUETAS = [
+        "ARA","ISIMO","Huevos Freske","Fresquesitos","H-H",
+        "Rapi Huevo","La Vaquita","Mil Variedades","Stiker",
+        "Max Ahorro","La Isla (Oceana)","Mercadona",
+        "Automerco","Super Beta","My Tienda",
+        "Maxi Oferta","Huevos Dia Norte","La 2000"
+    ]
+
+    REFERENCIAS_HUEVO = [
+        "A rojo",
+        "A blanco",
+        "AA blanco",
+        "AA rojo",
+        "AAA rojo",
+        "AAA blanco",
+        "B rojo",
+        "C rojo",
+        "sin referencia"
+    ]
+
+    PRESENTACIONES = [
+        "x6","x10","x11","x12","x15",
+        "x20","x22","x30","x45","x60","x75",
+        "sin referencia"
+    ]
+
+    # =========================
+    # FORMULARIO
+    # =========================
+
+    st.subheader("➕ Registrar movimiento de etiquetas")
+
+    with st.form("form_etiquetas"):
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+
+            fecha = st.date_input("Fecha")
+
+            marca = st.selectbox(
+                "Marca",
+                MARCAS_ETIQUETAS
+            )
+
+            referencia_huevo = st.selectbox(
+                "Referencia de huevo",
+                REFERENCIAS_HUEVO
+            )
+
+        with col2:
+
+            presentacion = st.selectbox(
+                "Presentación",
+                PRESENTACIONES
+            )
+
+            tipo_movimiento = st.selectbox(
+                "Tipo movimiento",
+                ["entrada","salida"]
+            )
+
+            paquetes = st.number_input(
+                "Paquetes (1 paquete = 600 etiquetas)",
+                min_value=1,
+                step=1
+            )
+
+        guardar = st.form_submit_button("Registrar movimiento")
+
+        if guardar:
+
+            supabase.table("movimientos_etiquetas").insert({
+                "fecha": str(fecha),
+                "marca": marca,
+                "referencia_huevo": referencia_huevo,
+                "presentacion": presentacion,
+                "tipo_movimiento": tipo_movimiento,
+                "paquetes": int(paquetes)
+            }).execute()
+
+            st.success("Movimiento registrado correctamente")
+            st.rerun()
+
+    st.divider()
+
+    # =========================
+    # INVENTARIO
+    # =========================
+
+    st.subheader("📦 Balance de Inventario de Etiquetas")
+
+    data = supabase.table("movimientos_etiquetas").select("*").execute()
+
+    df = pd.DataFrame(data.data)
+
+    if not df.empty:
+
+        df["entrada"] = np.where(
+            df["tipo_movimiento"] == "entrada",
+            df["etiquetas_totales"],
+            0
+        )
+
+        df["salida"] = np.where(
+            df["tipo_movimiento"] == "salida",
+            df["etiquetas_totales"],
+            0
+        )
+
+        inventario = df.groupby(
+            ["marca","referencia_huevo","presentacion"]
+        ).agg(
+            Entradas=("entrada","sum"),
+            Salidas=("salida","sum")
+        ).reset_index()
+
+        inventario["Stock"] = (
+            inventario["Entradas"] -
+            inventario["Salidas"]
+        )
+
+        st.dataframe(
+            inventario,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # =========================
+        # ALERTAS
+        # =========================
+
+        st.subheader("⚠️ Alertas de Escasez")
+
+        alertas = inventario[inventario["Stock"] < 3000]
+
+        if not alertas.empty:
+
+            st.warning("Inventario bajo en algunas etiquetas")
+
+            st.dataframe(
+                alertas,
+                use_container_width=True,
+                hide_index=True
+            )
+
+        else:
+
+            st.success("Inventario de etiquetas saludable")
+
+    else:
+
+        st.info("No hay movimientos registrados")
+
+    st.divider()
+
+    # =========================
+    # HISTORIAL
+    # =========================
+
+    st.subheader("📜 Historial de movimientos")
+
+    if not df.empty:
+
+        historial = df.sort_values(
+            by="fecha",
+            ascending=False
+        )
+
+        st.dataframe(
+            historial[
+                [
+                    "fecha",
+                    "marca",
+                    "referencia_huevo",
+                    "presentacion",
+                    "tipo_movimiento",
+                    "paquetes",
+                    "etiquetas_totales"
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True
+        )
+
+    else:
+
+        st.info("Aún no hay registros") 
 
 
 
