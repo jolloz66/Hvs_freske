@@ -321,85 +321,205 @@ with tab1:
             st.rerun()
 
 # =====================================
-# 🚚 GESTIÓN DESPACHOS
+# TAB 2: GESTIÓN OPERATIVA DE DESPACHOS
 # =====================================
+
+from datetime import datetime
 
 with tab2:
 
-    st.header("Gestión Logística")
+    st.header("🚚 Gestión de Despachos del Día")
 
-    # ===== FILTRO FECHA =====
-    fecha_filtro = st.date_input("Filtrar por fecha de despacho")
+    # =====================================================
+    # 🔎 FILTROS
+    # =====================================================
 
-    pedidos = supabase.table("pedidos") \
-        .select("*, clientes(nombre)") \
-        .eq("fecha_despacho", fecha_filtro.isoformat()) \
-        .order("id_pedido", desc=True) \
-        .execute().data
+    col1, col2, col3, col4 = st.columns(4)
 
-    df = pd.DataFrame(pedidos)
+    with col1:
+        fecha_filtro = st.date_input(
+            "Fecha de despacho",
+            value=date.today()
+        )
 
-    if df.empty:
-        st.warning("No hay pedidos para esa fecha.")
-    else:
+    with col2:
+        estado_filtro = st.selectbox(
+            "Estado",
+            ["Todos", "En proceso", "Despachado"]
+        )
 
-        for _, row in df.iterrows():
+    with col3:
+        solo_sin_vehiculo = st.checkbox("Sin vehículo")
 
-            cliente_nombre = row["clientes"]["nombre"] if row.get("clientes") else ""
+    with col4:
+        solo_sin_conductor = st.checkbox("Sin conductor")
 
-            st.subheader(f"Pedido #{row['id_pedido']} — {cliente_nombre}")
+    # =====================================================
+    # 📥 CARGA DE DATOS
+    # =====================================================
 
-            # ===== INFO GENERAL =====
-            col1, col2, col3 = st.columns(3)
-            col1.write(f"💰 Total: ${row['total_cobrado']:,.0f}")
-            col2.write(f"📅 Fecha despacho: {row['fecha_despacho']}")
-            col3.write(f"📦 Estado: {row['estado']}")
+    try:
+        res = supabase.table("pedidos") \
+            .select("*, clientes(nombre)") \
+            .eq("fecha_despacho", fecha_filtro.isoformat()) \
+            .execute()
 
-            st.divider()
+        if not res.data:
+            st.warning("No hay pedidos para esa fecha.")
+            st.stop()
 
-            # ===== DATOS LOGISTICOS =====
-            colA, colB = st.columns(2)
+        df = pd.DataFrame(res.data)
 
-            placa_actual = row.get("placa_vehiculo")
-            conductor_actual = row.get("conductor")
+        # =========================
+        # LIMPIEZA
+        # =========================
 
-            placa = colA.selectbox(
-                "Placa del vehículo",
-                PLACAS,
-                index=PLACAS.index(placa_actual) if placa_actual in PLACAS else 0,
-                key=f"placa_{row['id_pedido']}"
-            )
+        df["cliente"] = df["clientes"].apply(
+            lambda x: x.get("nombre") if isinstance(x, dict) else ""
+        )
 
-            conductor = colB.selectbox(
-                "Conductor",
-                CONDUCTORES,
-                index=CONDUCTORES.index(conductor_actual) if conductor_actual in CONDUCTORES else 0,
-                key=f"conductor_{row['id_pedido']}"
-            )
+        df = df.drop(columns=["clientes"])
 
-            nuevo_estado = st.selectbox(
-                "Estado del despacho",
-                ["No despachado", "En proceso", "Despachado"],
-                index=["No despachado", "En proceso", "Despachado"].index(row["estado"]),
-                key=f"estado_{row['id_pedido']}"
-            )
+        # asegurar columnas
+        for col in ["placa_vehiculo", "conductor", "hora_estado"]:
+            if col not in df.columns:
+                df[col] = None
 
-            # ===== GUARDAR =====
-            if st.button("Guardar logística", key=f"btn_{row['id_pedido']}"):
+        # =========================
+        # FILTROS
+        # =========================
+
+        if estado_filtro != "Todos":
+            df = df[df["estado"] == estado_filtro]
+
+        if solo_sin_vehiculo:
+            df = df[df["placa_vehiculo"].isna()]
+
+        if solo_sin_conductor:
+            df = df[df["conductor"].isna()]
+
+        if df.empty:
+            st.warning("No hay pedidos con ese criterio.")
+            st.stop()
+
+        # =========================
+        # PRIORIDAD
+        # =========================
+
+        df["prioridad"] = df["estado"].map({
+            "En proceso": 0,
+            "Despachado": 1
+        })
+
+        df = df.sort_values(by=["prioridad", "id_pedido"])
+
+        # =========================
+        # KPIs
+        # =========================
+
+        colA, colB, colC = st.columns(3)
+
+        colA.metric("Total pedidos", len(df))
+        colB.metric("Sin vehículo", df["placa_vehiculo"].isna().sum())
+        colC.metric("Sin conductor", df["conductor"].isna().sum())
+
+        st.divider()
+
+        # =====================================================
+        # 📋 EDITOR
+        # =====================================================
+
+        st.subheader("📋 Gestión Masiva de Despachos")
+
+        # guardar estado original
+        if "df_original_despachos" not in st.session_state:
+            st.session_state.df_original_despachos = df.copy()
+
+        df_edit = st.data_editor(
+            df[
+                [
+                    "id_pedido",
+                    "cliente",
+                    "placa_vehiculo",
+                    "conductor",
+                    "estado",
+                    "hora_estado"
+                ]
+            ],
+            column_config={
+                "placa_vehiculo": st.column_config.SelectboxColumn(
+                    "Placa",
+                    options=PLACAS
+                ),
+                "conductor": st.column_config.SelectboxColumn(
+                    "Conductor",
+                    options=CONDUCTORES
+                ),
+                "estado": st.column_config.SelectboxColumn(
+                    "Estado",
+                    options=["En proceso", "Despachado"]
+                ),
+                "hora_estado": st.column_config.Column(
+                    "Hora cambio estado",
+                    disabled=True
+                )
+            },
+            use_container_width=True,
+            key="editor_despachos"
+        )
+
+        # =====================================================
+        # ⚡ AUTO-GUARDADO
+        # =====================================================
+
+        cambios = 0
+        df_original = st.session_state.df_original_despachos
+
+        for i in range(len(df_edit)):
+
+            original = df_original.iloc[i]
+            editado = df_edit.iloc[i]
+
+            cambio_estado = original.get("estado") != editado.get("estado")
+
+            if (
+                original.get("placa_vehiculo") != editado.get("placa_vehiculo") or
+                original.get("conductor") != editado.get("conductor") or
+                cambio_estado
+            ):
+
+                # 🔴 VALIDACIÓN
+                if editado["estado"] == "Despachado":
+                    if not editado["placa_vehiculo"] or not editado["conductor"]:
+                        st.error(f"Pedido {editado['id_pedido']} no puede despacharse sin vehículo y conductor")
+                        continue
+
+                data_update = {
+                    "placa_vehiculo": editado["placa_vehiculo"],
+                    "conductor": editado["conductor"],
+                    "estado": editado["estado"]
+                }
+
+                # 🔥 GUARDAR HORA SOLO SI CAMBIA ESTADO
+                if cambio_estado:
+                    data_update["hora_estado"] = datetime.now().isoformat()
 
                 supabase.table("pedidos") \
-                    .update({
-                        "placa_vehiculo": placa,
-                        "conductor": conductor,
-                        "estado": nuevo_estado
-                    }) \
-                    .eq("id_pedido", row["id_pedido"]) \
+                    .update(data_update) \
+                    .eq("id_pedido", editado["id_pedido"]) \
                     .execute()
 
-                st.success("Logística actualizada")
-                st.rerun()
+                cambios += 1
 
-            st.divider()
+        # actualizar base en memoria
+        if cambios > 0:
+            st.session_state.df_original_despachos = df_edit.copy()
+            st.success(f"{cambios} cambios guardados automáticamente")
+
+    except Exception as e:
+        import traceback
+        st.error(str(e))
+        st.text(traceback.format_exc())
 # =====================================
 # 📊 DASHBOARD UNIDADES POR REFERENCIA
 # =====================================
