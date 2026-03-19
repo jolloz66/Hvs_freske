@@ -1140,48 +1140,37 @@ with tab8:
 # =====================================
 
 with tab9:
-
     import math
     import pandas as pd
 
-    st.header("Consumo Teórico de Materiales de Empaque")
+    st.header("📊 Consumo Teórico de Materiales de Empaque")
 
-    fecha_consumo = st.date_input("Fecha de despacho")
+    fecha_consumo = st.date_input("Fecha de despacho", key="fecha_tab9")
 
     # =========================
-    # METROS DE ZUNCHO POR EMPAQUE
+    # CONFIGURACIÓN DE CONSUMOS
     # =========================
-
     ZUNCHO_POR_EMPAQUE = {
-        "x15": 1.08,
-        "x30": 2.01,
-        "x10": 0.48,
-        "x11": 0.48,
-        "x12": 0.87,
-        "x20": 2.01,
-        "x22": 2.01,
-        "x45": 2.33,
-        "x60": 2.33,
-        "x75": 2.55
+        "x15": 1.08, "x30": 2.01, "x10": 0.48, "x11": 0.48,
+        "x12": 0.87, "x20": 2.01, "x22": 2.01, "x45": 2.33,
+        "x60": 2.33, "x75": 2.55
     }
 
     # =========================
     # 1️⃣ TRAER PEDIDOS
     # =========================
-
     pedidos = supabase.table("pedidos") \
         .select("id_pedido, tipo_etiqueta, clientes(nombre)") \
         .eq("fecha_despacho", fecha_consumo.isoformat()) \
         .execute()
 
     if not pedidos.data:
-        st.warning("No hay pedidos ese día")
+        st.warning(f"No hay pedidos registrados para el {fecha_consumo}")
         st.stop()
 
     df_ped = pd.DataFrame(pedidos.data)
-
     df_ped["cliente"] = df_ped["clientes"].apply(
-        lambda x: x["nombre"] if isinstance(x, dict) else ""
+        lambda x: x["nombre"] if isinstance(x, dict) else "Desconocido"
     )
 
     ids = df_ped["id_pedido"].tolist()
@@ -1189,84 +1178,83 @@ with tab9:
     # =========================
     # 2️⃣ TRAER DETALLE PEDIDOS
     # =========================
-
     detalles = supabase.table("detalle_pedido") \
         .select("id_pedido, empaque, cantidad") \
         .in_("id_pedido", ids) \
         .execute()
 
     if not detalles.data:
-        st.warning("No hay detalles de pedido")
+        st.error("Los pedidos de hoy no tienen productos registrados en el detalle.")
         st.stop()
 
     df_det = pd.DataFrame(detalles.data)
-
     df = df_det.merge(df_ped, on="id_pedido")
 
     # =========================
-    # 3️⃣ CALCULAR CONSUMO
+    # 3️⃣ CÁLCULO CIENTÍFICO DE CONSUMOS
     # =========================
-
     resultados = []
 
     for _, row in df.iterrows():
-
         cliente = row["cliente"]
-        empaque = str(row["empaque"]).lower().strip()
+        empaque_raw = str(row["empaque"]).lower().strip()
         huevos = row["cantidad"]
         tipo_etiqueta = row["tipo_etiqueta"]
 
-        # PET no usa zuncho ni plastiflecha
-        if "pet" in empaque:
-            bandejas = math.ceil(huevos / 30)
-            empaques = math.ceil(huevos / 6)
+        # Inicialización de variables
+        bandejas = math.ceil(huevos / 30)
+        empaques = 0
+        etiquetas = 0
+        zuncho = 0
 
+        # CASO A: EMPAQUES TIPO PET (Acetatos/Plásticos pequeños)
+        if "pet" in empaque_raw:
+            empaques = math.ceil(huevos / 6)  # Generalmente PET es de 6 o 12, ajusta según tu operación
             etiquetas = empaques if tipo_etiqueta != "Sin etiqueta" else 0
-            plastiflechas = etiquetas * 2
             zuncho = 0
 
+        # CASO B: GRANEL (Lleva etiquetas por bandeja, pero NO zuncho)
+        elif "granel" in empaque_raw:
+            empaques = bandejas # Una etiqueta por cada bandeja de 30
+            etiquetas = empaques if tipo_etiqueta != "Sin etiqueta" else 0
+            zuncho = 0
+
+        # CASO C: EMPAQUES ESTÁNDAR (x30, x15, x60, etc.)
         else:
-
-            numeros = ''.join(filter(str.isdigit, empaque))
-
-            if numeros == "":
-                continue
-
-            capacidad = int(numeros)
-
-            bandejas = math.ceil(huevos / 30)
+            numeros = ''.join(filter(str.isdigit, empaque_raw))
+            capacidad = int(numeros) if numeros != "" else 30 # Por seguridad, si no hay número usamos 30
+            
             empaques = math.ceil(huevos / capacidad)
+            etiquetas = empaques if tipo_etiqueta != "Sin etiqueta" else 0
+            
+            # Cálculo de Zuncho basado en la tabla de configuración
+            metros_zuncho = ZUNCHO_POR_EMPAQUE.get(empaque_raw, 0)
+            zuncho = empaques * metros_zuncho
 
-            # etiquetas
-            if tipo_etiqueta == "Sin etiqueta":
-                etiquetas = 0
-            else:
-                etiquetas = empaques
-
-            plastiflechas = etiquetas * 2
-
-            # zuncho por bandeja
-            metros = ZUNCHO_POR_EMPAQUE.get(empaque, 0)
-            zuncho = bandejas * metros
+        # Cada etiqueta usa 2 plastiflechas (Regla fija)
+        plastiflechas = etiquetas * 2
 
         resultados.append({
+            "ID": row["id_pedido"],
             "Cliente": cliente,
-            "Empaque": empaque,
+            "Empaque": empaque_raw,
+            "Cant. Huevos": huevos,
             "Bandejas x30": bandejas,
-            "Empaques": empaques,
             "Etiquetas": etiquetas,
             "Plastiflechas": plastiflechas,
             "Zuncho (m)": round(zuncho, 2)
         })
 
-    df_resultado = pd.DataFrame(resultados)
+    # Asegurar que df_resultado siempre tenga las columnas necesarias para los totales
+    if not resultados:
+        df_resultado = pd.DataFrame(columns=["Cliente", "Empaque", "Bandejas x30", "Etiquetas", "Plastiflechas", "Zuncho (m)"])
+    else:
+        df_resultado = pd.DataFrame(resultados)
 
     # =========================
-    # 4️⃣ TABLA PRINCIPAL
+    # 4️⃣ VISUALIZACIÓN
     # =========================
-
-    st.subheader("Consumo por Pedido")
-
+    st.subheader("📋 Desglose por Pedido")
     st.dataframe(
         df_resultado,
         use_container_width=True,
@@ -1274,231 +1262,25 @@ with tab9:
     )
 
     # =========================
-    # 5️⃣ TOTALES
+    # 5️⃣ CÁLCULO DE TOTALES (Sin KeyError)
     # =========================
-
     st.divider()
+    st.subheader("📦 Consumo Total Requerido")
 
-    st.subheader("Consumo Total del Día")
+    # Usamos fillna(0) por si la tabla está vacía
+    t_etiquetas = df_resultado["Etiquetas"].sum() if "Etiquetas" in df_resultado.columns else 0
+    t_plastiflechas = df_resultado["Plastiflechas"].sum() if "Plastiflechas" in df_resultado.columns else 0
+    t_zuncho = df_resultado["Zuncho (m)"].sum() if "Zuncho (m)" in df_resultado.columns else 0
 
-    total_etiquetas = df_resultado["Etiquetas"].sum()
-    total_plastiflechas = df_resultado["Plastiflechas"].sum()
-    total_zuncho = df_resultado["Zuncho (m)"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Total Etiquetas", f"{t_etiquetas:,.0f} und")
+    c2.metric("Total Plastiflechas", f"{t_plastiflechas:,.0f} und")
+    c3.metric("Total Zuncho", f"{t_zuncho:,.1f} metros")
 
-    col1, col2, col3 = st.columns(3)
+    # Botón de ayuda para el bodeguero
+    with st.expander("💡 Nota para el despacho"):
+        st.info("Los cálculos de etiquetas para 'Granel' se basan en 1 etiqueta por cada bandeja de 30 huevos. El Zuncho no se suma para pedidos PET o Granel.")
 
-    col1.metric(
-        "Total Etiquetas",
-        f"{total_etiquetas:,.0f}"
-    )
-
-    col2.metric(
-        "Total Plastiflechas",
-        f"{total_plastiflechas:,.0f}"
-    )
-
-    col3.metric(
-        "Total Zuncho (m)",
-        f"{total_zuncho:,.2f}"
-    ) 
-
-
-with tab10:
-
-    st.header("🏷️ Inventario de Etiquetas")
-
-    # =========================
-    # LISTAS CONTROLADAS
-    # =========================
-
-    MARCAS_ETIQUETAS = [
-        "ARA","ISIMO","Huevos Freske","Fresquesitos","H-H",
-        "Rapi Huevo","La Vaquita","Mil Variedades","Stiker",
-        "Max Ahorro","La Isla (Oceana)","Mercadona",
-        "Automerco","Super Beta","My Tienda",
-        "Maxi Oferta","Huevos Dia Norte","La 2000"
-    ]
-
-    REFERENCIAS_HUEVO = [
-        "A rojo",
-        "A blanco",
-        "AA blanco",
-        "AA rojo",
-        "AAA rojo",
-        "AAA blanco",
-        "B rojo",
-        "C rojo",
-        "sin referencia"
-    ]
-
-    PRESENTACIONES = [
-        "x6","x10","x11","x12","x15",
-        "x20","x22","x30","x45","x60","x75",
-        "sin referencia"
-    ]
-
-    # =========================
-    # FORMULARIO
-    # =========================
-
-    st.subheader("➕ Registrar movimiento de etiquetas")
-
-    with st.form("form_etiquetas"):
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            fecha = st.date_input("Fecha")
-
-            marca = st.selectbox(
-                "Marca",
-                MARCAS_ETIQUETAS
-            )
-
-            referencia_huevo = st.selectbox(
-                "Referencia de huevo",
-                REFERENCIAS_HUEVO
-            )
-
-        with col2:
-
-            presentacion = st.selectbox(
-                "Presentación",
-                PRESENTACIONES
-            )
-
-            tipo_movimiento = st.selectbox(
-                "Tipo movimiento",
-                ["entrada","salida"]
-            )
-
-            paquetes = st.number_input(
-                "Paquetes (1 paquete = 600 etiquetas)",
-                min_value=1,
-                step=1
-            )
-
-        guardar = st.form_submit_button("Registrar movimiento")
-
-        if guardar:
-
-            supabase.table("movimientos_etiquetas").insert({
-                "fecha": str(fecha),
-                "marca": marca,
-                "referencia_huevo": referencia_huevo,
-                "presentacion": presentacion,
-                "tipo_movimiento": tipo_movimiento,
-                "paquetes": int(paquetes)
-            }).execute()
-
-            st.success("Movimiento registrado correctamente")
-            st.rerun()
-
-    st.divider()
-
-    # =========================
-    # INVENTARIO
-    # =========================
-
-    st.subheader("📦 Balance de Inventario de Etiquetas")
-
-    data = supabase.table("movimientos_etiquetas").select("*").execute()
-
-    df = pd.DataFrame(data.data)
-
-    if not df.empty:
-
-        df["entrada"] = np.where(
-            df["tipo_movimiento"] == "entrada",
-            df["etiquetas_totales"],
-            0
-        )
-
-        df["salida"] = np.where(
-            df["tipo_movimiento"] == "salida",
-            df["etiquetas_totales"],
-            0
-        )
-
-        inventario = df.groupby(
-            ["marca","referencia_huevo","presentacion"]
-        ).agg(
-            Entradas=("entrada","sum"),
-            Salidas=("salida","sum")
-        ).reset_index()
-
-        inventario["Stock"] = (
-            inventario["Entradas"] -
-            inventario["Salidas"]
-        )
-
-        st.dataframe(
-            inventario,
-            use_container_width=True,
-            hide_index=True
-        )
-
-        # =========================
-        # ALERTAS
-        # =========================
-
-        st.subheader("⚠️ Alertas de Escasez")
-
-        alertas = inventario[inventario["Stock"] < 3000]
-
-        if not alertas.empty:
-
-            st.warning("Inventario bajo en algunas etiquetas")
-
-            st.dataframe(
-                alertas,
-                use_container_width=True,
-                hide_index=True
-            )
-
-        else:
-
-            st.success("Inventario de etiquetas saludable")
-
-    else:
-
-        st.info("No hay movimientos registrados")
-
-    st.divider()
-
-    # =========================
-    # HISTORIAL
-    # =========================
-
-    st.subheader("📜 Historial de movimientos")
-
-    if not df.empty:
-
-        historial = df.sort_values(
-            by="fecha",
-            ascending=False
-        )
-
-        st.dataframe(
-            historial[
-                [
-                    "fecha",
-                    "marca",
-                    "referencia_huevo",
-                    "presentacion",
-                    "tipo_movimiento",
-                    "paquetes",
-                    "etiquetas_totales"
-                ]
-            ],
-            use_container_width=True,
-            hide_index=True
-        )
-
-    else:
-
-        st.info("Aún no hay registros")
 
 
 
