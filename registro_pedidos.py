@@ -25,7 +25,7 @@ st.title("📦 Sistema Comercial - Huevos")
 # LISTAS FIJAS
 # =====================================
 
-VENDEDORES = ["01","02","03","06","08","10","11","12","14","15","16","18","24","25","26","23"]
+VENDEDORES = ["V001","V002","V003","V006","V008","V010","V011","V012","V014","V015","V016","V018","V024","V025","V026","V023"]
 REFERENCIAS = ["A","AA","AAA","B","C","JUMBO"]
 COLORES = ["rojo","blanco"]
 EMPAQUES = ["petx6","petx30","x15","x30","x10","estuche x12","estuchex4","x11","x12","x20","x22","x45","x60","x75","Granel","Canasta plastica"]
@@ -80,245 +80,167 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
 ])
 
 # =====================================
-# 🛒 NUEVO PEDIDO
+# 🛒 NUEVO PEDIDO (TAB 1 COMPLETO)
 # =====================================
 
 with tab1:
-
     st.header("Registro de Pedido")
 
-    # =========================
-    # CONTROL LIMPIEZA FORMULARIO
-    # =========================
-
+    # --- CONTROL LIMPIEZA FORMULARIO ---
     if "limpiar_formulario" not in st.session_state:
         st.session_state.limpiar_formulario = False
 
     if st.session_state.limpiar_formulario:
-
-        st.session_state.cliente = ""
+        # Nota: 'vendedor' y 'cliente' se limpian solos al resetear selectboxes si es necesario
         st.session_state.observaciones = ""
         st.session_state.precio_huevo = 0.0
         st.session_state.precio_logistico = 0.0
         st.session_state.cantidad = 1
-
         st.session_state.limpiar_formulario = False
 
-    # =========================
-    # CARRITO
-    # =========================
-
+    # --- CARRITO ---
     if "carrito" not in st.session_state:
         st.session_state.carrito = pd.DataFrame(columns=[
-            "referencia",
-            "color",
-            "empaque",
-            "precio_huevo",
-            "precio_logistico",
-            "cantidad",
-            "subtotal"
+            "referencia", "color", "empaque", "precio_huevo", 
+            "precio_logistico", "cantidad", "subtotal"
         ])
 
-    # =========================
-    # DATOS GENERALES
-    # =========================
+    # =====================================
+    # DATOS GENERALES (FILTRADO DINÁMICO)
+    # =====================================
+    col_v, col_c = st.columns(2)
 
-    vendedor = st.selectbox("Vendedor", VENDEDORES, key="vendedor")
-    cliente = st.text_input("Nombre del Cliente", key="cliente")
-    canal = st.selectbox("Canal Comercial", CANALES, key="canal")
-    forma_pago = st.selectbox("Forma de Pago", FORMAS_PAGO, key="forma_pago")
-    fecha_despacho = st.date_input("Fecha Despacho", key="fecha_despacho")
+    with col_v:
+        # 1. Selección del Vendedor (Lista fija)
+        vendedor = st.selectbox("Vendedor", VENDEDORES, key="vendedor_sel")
+
+    with col_c:
+        # 2. Consultar clientes de ese vendedor en Supabase
+        query_clientes = supabase.table("listado_clientes") \
+            .select("nombre") \
+            .eq("codigo_vendedor", vendedor) \
+            .execute()
+
+        if query_clientes.data:
+            # Sacamos nombres únicos por si un cliente tiene varias sucursales pero quieres ver solo el nombre
+            nombres_lista = sorted(list(set([c['nombre'] for c in query_clientes.data])))
+            cliente = st.selectbox("Seleccione el Cliente", options=nombres_lista, key="cliente_select")
+        else:
+            st.warning("No hay clientes para este vendedor")
+            cliente = ""
+
+    # Otros campos de encabezado
+    col_a, col_b, col_d = st.columns(3)
+    with col_a:
+        canal = st.selectbox("Canal Comercial", CANALES, key="canal")
+    with col_b:
+        forma_pago = st.selectbox("Forma de Pago", FORMAS_PAGO, key="forma_pago")
+    with col_d:
+        fecha_despacho = st.date_input("Fecha Despacho", key="fecha_despacho")
+
     observaciones = st.text_area("Observaciones", key="observaciones")
 
-    ficha_trazabilidad = st.radio(
-        "¿Tiene ficha de trazabilidad?",
-        ["Sí", "No"],
-        key="ficha_trazabilidad"
-    )
+    ficha_trazabilidad = st.radio("¿Tiene ficha de trazabilidad?", ["Sí", "No"], key="ficha_trazabilidad")
 
     st.divider()
 
-    # =========================
-    # CAMPOS ADICIONALES
-    # =========================
-
-    colX, colY, colZ = st.columns(3)
-
-    with colX:
-        tipo_etiqueta = st.selectbox("Tipo de etiqueta", TIPO_ETIQUETA, key="tipo_etiqueta")
-
-    with colY:
-        tipo_limpieza = st.selectbox("Tipo de limpieza", TIPO_LIMPIEZA, key="tipo_limpieza")
-
-    with colZ:
-        detalle_cartera = st.selectbox("Estado de cartera", DETALLE_CARTERA, key="detalle_cartera")
-
-    st.divider()
-
-    # =========================
-    # PRODUCTO
-    # =========================
-
+    # --- SELECCIÓN DE PRODUCTO ---
     col1, col2, col3 = st.columns(3)
-
     with col1:
         referencia = st.selectbox("Referencia", REFERENCIAS, key="referencia")
         precio_huevo = st.number_input("Precio Huevo", min_value=0.0, key="precio_huevo")
-
     with col2:
         color = st.selectbox("Color", COLORES, key="color")
         precio_logistico = st.number_input("Precio Logístico", min_value=0.0, key="precio_logistico")
-
     with col3:
         empaque = st.selectbox("Empaque", EMPAQUES, key="empaque")
         cantidad = st.number_input("Cantidad", min_value=1, key="cantidad")
 
-    # =========================
-    # AGREGAR PRODUCTO
-    # =========================
-
+    # --- AGREGAR AL CARRITO ---
     if st.button("Agregar al carrito"):
-
         subtotal = cantidad * (precio_huevo + precio_logistico)
-
         nuevo_producto = {
-            "referencia": referencia,
-            "color": color,
-            "empaque": empaque,
-            "precio_huevo": precio_huevo,
-            "precio_logistico": precio_logistico,
-            "cantidad": cantidad,
-            "subtotal": subtotal
+            "referencia": referencia, "color": color, "empaque": empaque,
+            "precio_huevo": precio_huevo, "precio_logistico": precio_logistico,
+            "cantidad": cantidad, "subtotal": subtotal
         }
-
-        st.session_state.carrito = pd.concat(
-            [st.session_state.carrito, pd.DataFrame([nuevo_producto])],
-            ignore_index=True
-        )
-
+        st.session_state.carrito = pd.concat([st.session_state.carrito, pd.DataFrame([nuevo_producto])], ignore_index=True)
         st.rerun()
 
-    # =========================
-    # CARRITO EDITABLE
-    # =========================
-
-    st.subheader("Carrito")
-
+    # --- TABLA DEL CARRITO ---
+    st.subheader("Carrito de Compras")
     if not st.session_state.carrito.empty:
-
         carrito_editado = st.data_editor(
             st.session_state.carrito,
-            column_config={
-                "referencia": st.column_config.Column(disabled=True),
-                "color": st.column_config.Column(disabled=True),
-                "empaque": st.column_config.Column(disabled=True),
-                "subtotal": st.column_config.Column(disabled=True)
-            },
             num_rows="dynamic",
             use_container_width=True,
             key="editor_carrito"
         )
-
         st.session_state.carrito = carrito_editado
-
-        # recalcular subtotal
-        st.session_state.carrito["subtotal"] = (
-            (st.session_state.carrito["precio_huevo"] +
-             st.session_state.carrito["precio_logistico"])
-            * st.session_state.carrito["cantidad"]
-        )
-
+        total_pedido = st.session_state.carrito["subtotal"].sum()
     else:
         st.info("El carrito está vacío")
-
-    # =========================
-    # TOTAL PEDIDO
-    # =========================
-
-    total_pedido = st.session_state.carrito["subtotal"].sum()
+        total_pedido = 0.0
 
     st.markdown(f"### 💰 Total Pedido: ${total_pedido:,.2f}")
 
-    # =========================
-    # CREAR O BUSCAR CLIENTE
-    # =========================
+    # =====================================
+    # LÓGICA DE GUARDADO FINAL
+    # =====================================
 
-    def obtener_o_crear_cliente(nombre, canal, forma_pago):
-
-        response = supabase.table("clientes").select("*").eq("nombre", nombre).execute()
-
-        if response.data:
-            return response.data[0]["id_cliente"]
-
-        nuevo_cliente = {
-            "nombre": nombre,
-            "canal_comercial": canal,
-            "forma_de_pago": forma_pago
-        }
-
-        insert = supabase.table("clientes").insert(nuevo_cliente).execute()
-
-        return insert.data[0]["id_cliente"]
-
-    # =========================
-    # GUARDAR PEDIDO
-    # =========================
+    def obtener_id_cliente(nombre_cli):
+        # Buscamos el ID en la nueva tabla 'listado_clientes'
+        res = supabase.table("listado_clientes").select("id_cliente").eq("nombre", nombre_cli).limit(1).execute()
+        if res.data:
+            return res.data[0]["id_cliente"]
+        return None
 
     if st.button("Guardar Pedido Completo"):
-
-        if cliente.strip() == "":
-            st.error("El cliente es obligatorio")
-
+        if not cliente:
+            st.error("Debe seleccionar un cliente")
         elif st.session_state.carrito.empty:
             st.error("El carrito está vacío")
-
         else:
+            id_cliente = obtener_id_cliente(cliente)
+            
+            if id_cliente:
+                pedido_data = {
+                    "id_cliente": id_cliente,
+                    "vendedor": vendedor,
+                    "fecha_despacho": fecha_despacho.isoformat(),
+                    "total_cobrado": total_pedido,
+                    "observaciones": observaciones,
+                    "estado": "No despachado",
+                    "ficha_de_trazabilidad": True if ficha_trazabilidad == "Sí" else False,
+                    "facturado": False
+                }
 
-            id_cliente = obtener_o_crear_cliente(cliente, canal, forma_pago)
+                # Guardar en tabla 'pedidos'
+                res_p = supabase.table("pedidos").insert(pedido_data).execute()
+                id_pedido = res_p.data[0]["id_pedido"]
 
-            pedido_data = {
-                "id_cliente": id_cliente,
-                "vendedor": vendedor,
-                "fecha_despacho": fecha_despacho.isoformat(),
-                "total_cobrado": total_pedido,
-                "observaciones": observaciones,
-                "estado": "No despachado",
-                "ficha_de_trazabilidad": True if ficha_trazabilidad == "Sí" else False,
-                "facturado": False,
-                "tipo_etiqueta": tipo_etiqueta,
-                "tipo_limpieza": tipo_limpieza,
-                "detalle_cartera": detalle_cartera
-            }
+                # Guardar detalles
+                detalles = []
+                for _, row in st.session_state.carrito.iterrows():
+                    detalles.append({
+                        "id_pedido": id_pedido,
+                        "referencia": row["referencia"],
+                        "color": row["color"],
+                        "empaque": row["empaque"],
+                        "precio_huevo": row["precio_huevo"],
+                        "precio_logistico": row["precio_logistico"],
+                        "cantidad": row["cantidad"]
+                    })
+                
+                supabase.table("detalle_pedido").insert(detalles).execute()
 
-            pedido_resp = supabase.table("pedidos").insert(pedido_data).execute()
-
-            id_pedido = pedido_resp.data[0]["id_pedido"]
-
-            detalles = []
-
-            for _, row in st.session_state.carrito.iterrows():
-
-                detalles.append({
-                    "id_pedido": id_pedido,
-                    "referencia": row["referencia"],
-                    "color": row["color"],
-                    "empaque": row["empaque"],
-                    "precio_huevo": row["precio_huevo"],
-                    "precio_logistico": row["precio_logistico"],
-                    "cantidad": row["cantidad"]
-                })
-
-            supabase.table("detalle_pedido").insert(detalles).execute()
-
-            # limpiar carrito
-            st.session_state.carrito = st.session_state.carrito.iloc[0:0]
-
-            # limpiar formulario
-            st.session_state.limpiar_formulario = True
-
-            st.success(f"✅ Pedido guardado correctamente. Código: {id_pedido}")
-
-            st.rerun()
+                # Resetear App
+                st.session_state.carrito = st.session_state.carrito.iloc[0:0]
+                st.session_state.limpiar_formulario = True
+                st.success(f"✅ Pedido #{id_pedido} guardado con éxito")
+                st.rerun()
+            else:
+                st.error("Error: No se encontró el ID del cliente en la base de datos.")
 
 # =====================================
 # TAB 2: GESTIÓN OPERATIVA DE DESPACHOS
